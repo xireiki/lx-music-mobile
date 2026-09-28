@@ -1,3 +1,4 @@
+import { Platform } from 'react-native'
 import RNFS from 'react-native-fs'
 import {
   Dirs,
@@ -8,18 +9,89 @@ import {
   type HashAlgorithm,
   getExternalStoragePaths as _getExternalStoragePaths,
 } from 'react-native-file-system'
+import settingState from '@/store/setting/state'
 
 export type {
   FileType,
 } from 'react-native-file-system'
-
-// export const externalDirectoryPath = RNFS.ExternalDirectoryPath
 
 export const extname = (name: string) => name.lastIndexOf('.') > 0 ? name.substring(name.lastIndexOf('.') + 1) : ''
 
 export const temporaryDirectoryPath = Dirs.CacheDir
 export const externalStorageDirectoryPath = Dirs.SDCardDir
 export const privateStorageDirectoryPath = Dirs.DocumentDir
+
+const MUSIC_DOWNLOAD_APP_FOLDER = 'lxmusic'
+
+export const getMusicDownloadDirectoryPath = (): string => {
+  const customPath = settingState.setting['download.savePath']?.trim()
+  if (customPath) return customPath.replace(/\/+/g, '/')
+  if (Platform.OS === 'android') {
+    const root = (RNFS.DownloadDirectoryPath ?? '').replace(/\/+$/, '')
+    if (root.length > 0) {
+      return `${root}/${MUSIC_DOWNLOAD_APP_FOLDER}`.replace(/\/+/g, '/')
+    }
+  }
+  return `${privateStorageDirectoryPath}/download/${MUSIC_DOWNLOAD_APP_FOLDER}`.replace(/\/+/g, '/')
+}
+
+export const ensureMusicDownloadDirectory = async(): Promise<string> => {
+  const dir = getMusicDownloadDirectoryPath()
+  if (!(await RNFS.exists(dir))) {
+    await RNFS.mkdir(dir)
+  }
+  return dir
+}
+
+export const existsMusicDownloadTarget = async(path: string): Promise<boolean> => {
+  return RNFS.exists(path)
+}
+
+export interface MusicDownloadDirItem {
+  name: string
+  path: string
+  isFile: boolean
+  size: number
+}
+
+export const readMusicDownloadDirectory = async(): Promise<MusicDownloadDirItem[]> => {
+  const dir = getMusicDownloadDirectoryPath()
+  if (!(await RNFS.exists(dir))) return []
+  if (Platform.OS === 'android') {
+    const list = await RNFS.readDir(dir)
+    return list.map(item => ({
+      name: item.name,
+      path: item.path,
+      isFile: item.isFile(),
+      size: typeof item.size === 'number' ? item.size : Number(item.size) || 0,
+    }))
+  }
+  const list = await FileSystem.ls(dir)
+  return list.map((item: {
+    name: string
+    path: string
+    isFile?: boolean
+    isDirectory?: boolean
+    size?: number
+  }) => ({
+    name: item.name,
+    path: item.path,
+    isFile: item.isFile === true || item.isDirectory === false,
+    size: item.size ?? 0,
+  }))
+}
+
+export const scanMusicDownloadFile = async(path: string): Promise<void> => {
+  if (Platform.OS !== 'android') return
+  try {
+    await RNFS.scanFile(path)
+  } catch {}
+}
+
+export const removeMusicDownloadTarget = async(path: string): Promise<void> => {
+  if (!(await RNFS.exists(path))) return
+  await RNFS.unlink(path)
+}
 
 export const getExternalStoragePaths = async(is_removable?: boolean) => _getExternalStoragePaths(is_removable)
 
@@ -42,9 +114,6 @@ export const hash = async(path: string, algorithm: HashAlgorithm) => FileSystem.
 
 export const readFile = async(path: string, encoding?: Encoding) => FileSystem.readFile(path, encoding)
 
-
-// export const copyFile = async(fromPath: string, toPath: string) => FileSystem.cp(fromPath, toPath)
-
 export const moveFile = async(fromPath: string, toPath: string) => FileSystem.mv(fromPath, toPath)
 export const gzipFile = async(fromPath: string, toPath: string) => FileSystem.gzipFile(fromPath, toPath)
 export const unGzipFile = async(fromPath: string, toPath: string) => FileSystem.unGzipFile(fromPath, toPath)
@@ -66,21 +135,9 @@ export const downloadFile = (url: string, path: string, options: Omit<RNFS.Downl
     }
   }
   return RNFS.downloadFile({
-    fromUrl: url, // URL to download file from
-    toFile: path, // Local filesystem path to save the file to
+    fromUrl: url,
+    toFile: path,
     ...options,
-    // headers: options.headers, // An object of headers to be passed to the server
-    // // background?: boolean;     // Continue the download in the background after the app terminates (iOS only)
-    // // discretionary?: boolean;  // Allow the OS to control the timing and speed of the download to improve perceived performance  (iOS only)
-    // // cacheable?: boolean;      // Whether the download can be stored in the shared NSURLCache (iOS only, defaults to true)
-    // progressInterval: options.progressInterval,
-    // progressDivider: options.progressDivider,
-    // begin: (res: DownloadBeginCallbackResult) => void;
-    // progress?: (res: DownloadProgressCallbackResult) => void;
-    // // resumable?: () => void;    // only supported on iOS yet
-    // connectionTimeout?: number // only supported on Android yet
-    // readTimeout?: number       // supported on Android and iOS
-    // // backgroundTimeout?: number // Maximum time (in milliseconds) to download an entire resource (iOS only, useful for timing out background downloads)
   })
 }
 
